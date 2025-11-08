@@ -1,0 +1,260 @@
+// ========================================
+// FOREST CHANGE & HYDROLOGY ANALYSIS - EXPORT EDITION
+// Study Area: Nilgiris District, Tamil Nadu/Karnataka
+// Time Period: 2000 vs 2020
+// Team: Jaswanth & Anooha
+// ========================================
+
+// STEP 1: DEFINE STUDY AREA
+var nilgiris = ee.Geometry.Rectangle([76.3, 11.15, 76.9, 11.7]);
+
+Map.centerObject(nilgiris, 10);
+Map.addLayer(nilgiris, {color: 'yellow', fillColor: '00000000', width: 3}, '📍 Nilgiris District');
+
+// ========================================
+// STEP 2: LOAD SATELLITE DATA
+// ========================================
+
+// NDVI functions
+var addNDVI_L5 = function(image) {
+  var ndvi = image.normalizedDifference(['SR_B4', 'SR_B3']).rename('NDVI');
+  return image.addBands(ndvi);
+};
+
+var addNDVI_L8 = function(image) {
+  var ndvi = image.normalizedDifference(['SR_B5', 'SR_B4']).rename('NDVI');
+  return image.addBands(ndvi);
+};
+
+var applyScaleFactors = function(image) {
+  var opticalBands = image.select('SR_B.').multiply(0.0000275).add(-0.2);
+  return image.addBands(opticalBands, null, true);
+};
+
+// YEAR 2000 - Landsat 5
+var landsat2000 = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')
+  .filterBounds(nilgiris)
+  .filterDate('2000-01-01', '2000-12-31')
+  .filter(ee.Filter.lt('CLOUD_COVER', 20))
+  .map(applyScaleFactors)
+  .map(addNDVI_L5)
+  .median()
+  .clip(nilgiris);
+
+// YEAR 2020 - Landsat 8
+var landsat2020 = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
+  .filterBounds(nilgiris)
+  .filterDate('2020-01-01', '2020-12-31')
+  .filter(ee.Filter.lt('CLOUD_COVER', 20))
+  .map(applyScaleFactors)
+  .map(addNDVI_L8)
+  .median()
+  .clip(nilgiris);
+
+// ========================================
+// STEP 3: FOREST CLASSIFICATION
+// ========================================
+
+var forestThreshold = 0.4;
+var forest2000 = landsat2000.select('NDVI').gt(forestThreshold).rename('forest2000');
+var forest2020 = landsat2020.select('NDVI').gt(forestThreshold).rename('forest2020');
+
+// ========================================
+// STEP 4: CHANGE DETECTION
+// ========================================
+
+var forestChange = forest2000.addBands(forest2020);
+
+var change = forestChange.expression(
+  "(b('forest2000') == 1 && b('forest2020') == 0) ? 1 : " + // Loss
+  "(b('forest2000') == 0 && b('forest2020') == 1) ? 2 : " + // Gain
+  "(b('forest2000') == 1 && b('forest2020') == 1) ? 3 : 0"   // Stable
+).rename('change');
+
+// Extract individual change types
+var forestLoss = change.eq(1).selfMask();
+var forestGain = change.eq(2).selfMask();
+var stableForest = change.eq(3).selfMask();
+
+// ========================================
+// STEP 5: HYDROLOGY DATA
+// ========================================
+
+// Load water bodies
+var water = ee.Image("JRC/GSW1_3/GlobalSurfaceWater")
+  .select('occurrence')
+  .clip(nilgiris);
+
+var waterMask = water.gte(50).selfMask();
+
+// ========================================
+// STEP 6: CALCULATE STATISTICS
+// ========================================
+
+var areaImage = ee.Image.pixelArea().divide(1e6); // sq km
+
+var forest2000Area = forest2000.multiply(areaImage).reduceRegion({
+  reducer: ee.Reducer.sum(),
+  geometry: nilgiris,
+  scale: 30,
+  maxPixels: 1e13
+});
+
+var forest2020Area = forest2020.multiply(areaImage).reduceRegion({
+  reducer: ee.Reducer.sum(),
+  geometry: nilgiris,
+  scale: 30,
+  maxPixels: 1e13
+});
+
+var forestLossArea = change.eq(1).multiply(areaImage).reduceRegion({
+  reducer: ee.Reducer.sum(),
+  geometry: nilgiris,
+  scale: 30,
+  maxPixels: 1e13
+});
+
+var forestGainArea = change.eq(2).multiply(areaImage).reduceRegion({
+  reducer: ee.Reducer.sum(),
+  geometry: nilgiris,
+  scale: 30,
+  maxPixels: 1e13
+});
+
+// Print statistics
+print('═══════════════════════════════════════════');
+print('🌳 NILGIRIS FOREST CHANGE ANALYSIS');
+print('═══════════════════════════════════════════');
+print('Forest Cover 2000 (sq km):', forest2000Area.get('forest2000'));
+print('Forest Cover 2020 (sq km):', forest2020Area.get('forest2020'));
+print('Forest Loss Area (sq km):', forestLossArea.get('change'));
+print('Forest Gain Area (sq km):', forestGainArea.get('change'));
+print('═══════════════════════════════════════════');
+
+// ========================================
+// STEP 7: VISUALIZATION
+// ========================================
+
+// Forest cover layers
+var forestVis = {min: 0, max: 1, palette: ['white', 'darkgreen']};
+Map.addLayer(forest2000, forestVis, 'Forest Cover 2000', false);
+Map.addLayer(forest2020, forestVis, 'Forest Cover 2020', false);
+
+// Change map
+var changeVis = {
+  min: 0,
+  max: 3,
+  palette: ['white', 'red', 'lightgreen', 'darkgreen']
+};
+Map.addLayer(change, changeVis, '🔥 Forest Change Map (2000-2020)', true);
+
+// Individual change layers
+Map.addLayer(stableForest, {palette: ['darkgreen']}, '🌲 Stable Forest', false);
+Map.addLayer(forestLoss, {palette: ['red']}, '🔥 Forest Loss', false);
+Map.addLayer(forestGain, {palette: ['lightgreen']}, '🌱 Forest Gain', false);
+Map.addLayer(waterMask, {palette: ['blue']}, '💧 Water Bodies', false);
+
+// ========================================
+// STEP 8: LEGEND
+// ========================================
+
+var legend = ui.Panel({
+  style: {position: 'bottom-left', padding: '8px 15px'}
+});
+
+var legendTitle = ui.Label({
+  value: 'Forest Change Legend',
+  style: {fontWeight: 'bold', fontSize: '16px', margin: '0 0 8px 0'}
+});
+legend.add(legendTitle);
+
+var makeRow = function(color, name) {
+  var colorBox = ui.Label({
+    style: {backgroundColor: color, padding: '8px', margin: '0 0 4px 0'}
+  });
+  var description = ui.Label({
+    value: name,
+    style: {margin: '0 0 4px 6px'}
+  });
+  return ui.Panel({
+    widgets: [colorBox, description],
+    layout: ui.Panel.Layout.Flow('horizontal')
+  });
+};
+
+legend.add(makeRow('red', 'Forest Loss (Deforestation)'));
+legend.add(makeRow('lightgreen', 'Forest Gain (Regeneration)'));
+legend.add(makeRow('darkgreen', 'Stable Forest'));
+legend.add(makeRow('blue', 'Water Bodies'));
+
+Map.add(legend);
+
+// ========================================
+// STEP 9: EXPORT THE 4 REQUIRED MAPS
+// ========================================
+
+// 1. Forest Change Map (2000-2020)
+Export.image.toDrive({
+  image: change.visualize(changeVis),
+  description: 'Nilgiris_Forest_Change_2000_2020',
+  region: nilgiris,
+  scale: 30,
+  maxPixels: 1e13,
+  fileFormat: 'GeoTIFF'
+});
+
+// 2. Forest Cover 2000
+Export.image.toDrive({
+  image: forest2000.visualize(forestVis),
+  description: 'Nilgiris_Forest_2000',
+  region: nilgiris,
+  scale: 30,
+  maxPixels: 1e13,
+  fileFormat: 'GeoTIFF'
+});
+
+// 3. Forest Cover 2020
+Export.image.toDrive({
+  image: forest2020.visualize(forestVis),
+  description: 'Nilgiris_Forest_2020',
+  region: nilgiris,
+  scale: 30,
+  maxPixels: 1e13,
+  fileFormat: 'GeoTIFF'
+});
+
+// 4. Complete Forest-Hydrology Map
+var completeMap = stableForest.visualize({palette: ['darkgreen']})
+  .blend(forestLoss.visualize({palette: ['red']}))
+  .blend(forestGain.visualize({palette: ['lightgreen']}))
+  .blend(waterMask.visualize({palette: ['blue']}));
+
+Export.image.toDrive({
+  image: completeMap,
+  description: 'Nilgiris_Complete_Forest_Hydrology_Map',
+  region: nilgiris,
+  scale: 30,
+  maxPixels: 1e13,
+  fileFormat: 'GeoTIFF'
+});
+
+// ========================================
+// COMPLETION MESSAGE
+// ========================================
+
+print('');
+print('✅ SCRIPT COMPLETE!');
+print('');
+print('📥 4 EXPORT TASKS CREATED:');
+print('   1. Nilgiris_Forest_Change_2000_2020');
+print('   2. Nilgiris_Forest_2000');
+print('   3. Nilgiris_Forest_2020');
+print('   4. Nilgiris_Complete_Forest_Hydrology_Map');
+print('');
+print('🎯 TO EXPORT:');
+print('   → Go to Tasks tab (top right corner)');
+print('   → Click RUN on each of the 4 tasks');
+print('   → Files will be saved to your Google Drive');
+print('');
+print('⏱ Export time: ~5-10 minutes per map');
+print('═══════════════════════════════════════════');

@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forest Change Detection Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0a1929; color: #fff; }
+        .dashboard-header { background: linear-gradient(135deg, #1e3a5f 0%, #0a1929 100%); padding: 20px 40px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #1e3a5f; }
+        .dashboard-title { font-size: 2em; font-weight: bold; }
+        .dashboard-subtitle { font-size: 0.9em; color: #64b5f6; margin-top: 5px; }
+        .header-controls { display: flex; gap: 15px; align-items: center; }
+        .year-input-group { display: flex; flex-direction: column; gap: 5px; }
+        .year-input-label { font-size: 0.75em; color: #90caf9; text-transform: uppercase; }
+        .year-input { background: #1e3a5f; border: 2px solid #2979ff; color: #fff; padding: 12px 20px; border-radius: 8px; font-size: 1.1em; font-weight: bold; width: 150px; text-align: center; }
+        .severity-btn { background: #43a047; color: white; border: none; padding: 15px 30px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 1.1em; }
+        .dashboard-container { padding: 20px; display: grid; grid-template-columns: 300px 1fr 350px; gap: 20px; }
+        .left-sidebar { display: flex; flex-direction: column; gap: 15px; }
+        .kpi-card { background: linear-gradient(135deg, #1e3a5f 0%, #0f2744 100%); border: 1px solid #2d4a6d; border-radius: 12px; padding: 20px; position: relative; }
+        .kpi-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #2979ff, #00bcd4); }
+        .kpi-label { font-size: 0.85em; color: #90caf9; text-transform: uppercase; margin-bottom: 10px; }
+        .kpi-value { font-size: 2.5em; font-weight: bold; }
+        .kpi-change { font-size: 0.9em; margin-top: 5px; }
+        .kpi-change.negative { color: #ff5252; }
+        .kpi-change.positive { color: #69f0ae; }
+        .center-content { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+        .chart-card { background: linear-gradient(135deg, #1e3a5f 0%, #0f2744 100%); border: 1px solid #2d4a6d; border-radius: 12px; padding: 25px; }
+        .chart-card.full-width { grid-column: 1 / -1; }
+        .chart-title { font-size: 1.1em; color: #90caf9; margin-bottom: 20px; font-weight: 600; }
+        .chart-wrapper { height: 280px; }
+        .top-stats { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(6, 1fr); gap: 15px; }
+        .stat-box { background: linear-gradient(135deg, #1e3a5f 0%, #0f2744 100%); border: 1px solid #2d4a6d; border-radius: 10px; padding: 20px; text-align: center; position: relative; }
+        .stat-box::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+        .stat-box.loss::before { background: #ff5252; }
+        .stat-box.gain::before { background: #69f0ae; }
+        .stat-box.stable::before { background: #2979ff; }
+        .stat-icon { font-size: 2.5em; margin-bottom: 10px; }
+        .stat-value { font-size: 2em; font-weight: bold; }
+        .stat-label { font-size: 0.75em; color: #90caf9; text-transform: uppercase; margin-top: 5px; }
+        .right-sidebar { display: flex; flex-direction: column; gap: 20px; }
+        .map-card { background: linear-gradient(135deg, #1e3a5f 0%, #0f2744 100%); border: 1px solid #2d4a6d; border-radius: 12px; padding: 20px; flex: 1; }
+        .map-placeholder { background: #0a1929; border: 2px dashed #2d4a6d; border-radius: 8px; height: 400px; display: flex; align-items: center; justify-content: center; text-align: center; }
+        .legend-card { background: linear-gradient(135deg, #1e3a5f 0%, #0f2744 100%); border: 1px solid #2d4a6d; border-radius: 12px; padding: 20px; }
+        .legend-item { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 0.9em; }
+        .legend-color { width: 20px; height: 20px; border-radius: 4px; }
+        .control-panel { grid-column: 1 / -1; background: linear-gradient(135deg, #1e3a5f 0%, #0f2744 100%); border: 1px solid #2d4a6d; border-radius: 12px; padding: 25px; }
+        .control-title { font-size: 1.3em; color: #90caf9; margin-bottom: 20px; }
+        .input-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 20px; }
+        .input-group label { color: #90caf9; font-size: 0.85em; margin-bottom: 8px; display: block; }
+        .input-group input { width: 100%; background: #0a1929; border: 2px solid #2d4a6d; color: #fff; padding: 12px; border-radius: 6px; font-size: 1em; }
+        .calculate-btn { background: linear-gradient(135deg, #2979ff 0%, #1565c0 100%); color: white; border: none; padding: 15px 40px; border-radius: 8px; font-size: 1.1em; font-weight: bold; cursor: pointer; }
+        .update-notification { position: fixed; top: 100px; right: 30px; background: linear-gradient(135deg, #43a047 0%, #2e7d32 100%); color: white; padding: 15px 25px; border-radius: 10px; opacity: 0; transition: opacity 0.5s; z-index: 1000; }
+        .update-notification.show { opacity: 1; }
+    </style>
+</head>
+<body>
+    <div id="updateNotification" class="update-notification">✅ Dashboard Updated!</div>
+    
+    <div class="dashboard-header">
+        <div>
+            <div class="dashboard-title">🌳 Forest Change Detection Dashboard</div>
+            <div class="dashboard-subtitle">Nilgiris District | Team: Jaswanth & Anooha</div>
+        </div>
+        <div class="header-controls">
+            <div class="year-input-group">
+                <div class="year-input-label">Baseline Year</div>
+                <input type="number" class="year-input" id="headerYear1" value="2000" min="1980" max="2030">
+            </div>
+            <div class="year-input-group">
+                <div class="year-input-label">Comparison Year</div>
+                <input type="number" class="year-input" id="headerYear2" value="2020" min="1980" max="2030">
+            </div>
+            <button class="severity-btn" onclick="updateFromHeader()">🔄 Update</button>
+        </div>
+    </div>
+    
+    <div class="dashboard-container">
+        <div class="left-sidebar">
+            <div class="kpi-card">
+                <div class="kpi-label">Baseline Forest</div>
+                <div class="kpi-value" id="totalForest">3,498</div>
+                <div class="kpi-change" id="kpiYear1">Year: 2000</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Current Forest</div>
+                <div class="kpi-value" id="currentForest">3,401</div>
+                <div class="kpi-change" id="kpiYear2">Year: 2020</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Forest Loss</div>
+                <div class="kpi-value" id="forestLoss">97.46</div>
+                <div class="kpi-change negative">▼ sq km</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Forest Gain</div>
+                <div class="kpi-value" id="forestGain">10.5</div>
+                <div class="kpi-change positive">▲ sq km</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Net Change</div>
+                <div class="kpi-value" id="netChangePercent">-2.79%</div>
+                <div class="kpi-change negative">▼ Decrease</div>
+            </div>
+        </div>
+        
+        <div class="center-content">
+            <div class="top-stats">
+                <div class="stat-box loss">
+                    <div class="stat-icon">🔥</div>
+                    <div class="stat-value" id="statLoss">97.5</div>
+                    <div class="stat-label">Forest Loss</div>
+                </div>
+                <div class="stat-box gain">
+                    <div class="stat-icon">🌱</div>
+                    <div class="stat-value" id="statGain">10.5</div>
+                    <div class="stat-label">Forest Gain</div>
+                </div>
+                <div class="stat-box stable">
+                    <div class="stat-icon">🌲</div>
+                    <div class="stat-value" id="statStable">3,310</div>
+                    <div class="stat-label">Stable</div>
+                </div>
+                <div class="stat-box loss">
+                    <div class="stat-icon">💧</div>
+                    <div class="stat-value">42</div>
+                    <div class="stat-label">Water Bodies</div>
+                </div>
+                <div class="stat-box gain">
+                    <div class="stat-icon">⚠</div>
+                    <div class="stat-value">27</div>
+                    <div class="stat-label">Risk Zones</div>
+                </div>
+                <div class="stat-box stable">
+                    <div class="stat-icon">📊</div>
+                    <div class="stat-value" id="statChange">-2.79%</div>
+                    <div class="stat-label">Net Change</div>
+                </div>
+            </div>
+            
+            <div class="control-panel">
+                <div class="control-title">🎛 Analysis Parameters</div>
+                <div class="input-grid">
+                    <div class="input-group">
+                        <label>📅 Baseline Year</label>
+                        <input type="number" id="year1Input" value="2000" min="1980" max="2030">
+                    </div>
+                    <div class="input-group">
+                        <label>🌳 Forest (sq km)</label>
+                        <input type="number" id="forest1Input" value="3498.31" step="0.01">
+                    </div>
+                    <div class="input-group">
+                        <label>📅 Comparison Year</label>
+                        <input type="number" id="year2Input" value="2020" min="1980" max="2030">
+                    </div>
+                    <div class="input-group">
+                        <label>🌳 Forest (sq km)</label>
+                        <input type="number" id="forest2Input" value="3400.85" step="0.01">
+                    </div>
+                </div>
+                <button class="calculate-btn" onclick="updateDashboard()">🚀 Calculate Analysis</button>
+            </div>
+            
+            <div class="chart-card">
+                <div class="chart-title" id="barTitle">📊 Forest Cover Comparison (2000 vs 2020)</div>
+                <div class="chart-wrapper"><canvas id="barChart"></canvas></div>
+            </div>
+            <div class="chart-card">
+                <div class="chart-title">🥧 Land Use Distribution</div>
+                <div class="chart-wrapper"><canvas id="pieChart"></canvas></div>
+            </div>
+            <div class="chart-card full-width">
+                <div class="chart-title">📈 Forest Change Analysis</div>
+                <div class="chart-wrapper"><canvas id="changeChart"></canvas></div>
+            </div>
+            <div class="chart-card">
+                <div class="chart-title">🎯 Status Distribution</div>
+                <div class="chart-wrapper"><canvas id="doughnutChart"></canvas></div>
+            </div>
+            <div class="chart-card">
+                <div class="chart-title" id="lineTitle">📉 Trend (2000-2020)</div>
+                <div class="chart-wrapper"><canvas id="lineChart"></canvas></div>
+            </div>
+        </div>
+        
+        <div class="right-sidebar">
+            <div class="map-card">
+                <div class="kpi-label">🗺 Deforestation Hotspots</div>
+                <div class="map-card">
+                    <div class="kpi-label">🗺 Deforestation Hotspots</div>
+                    <div class="map-placeholder" style="border: none;">
+                        <img src="Nilgiris_Forest_Change_2000_2020.jpg" alt="Nilgiris Forest Map" style="width:100%; height:100%; border-radius:8px; object-fit: cover;">
+                    </div>
+                </div>
+
+            <div class="legend-card">
+                <div class="kpi-label">🎨 Legend</div>
+                <div class="legend-item"><div class="legend-color" style="background: #ff5252;"></div><span>Forest Loss</span></div>
+                <div class="legend-item"><div class="legend-color" style="background: #69f0ae;"></div><span>Forest Gain</span></div>
+                <div class="legend-item"><div class="legend-color" style="background: #2979ff;"></div><span>Stable Forest</span></div>
+                <div class="legend-item"><div class="legend-color" style="background: #00bcd4;"></div><span>Water Bodies</span></div>
+                <div class="legend-item"><div class="legend-color" style="background: #ffa726;"></div><span>High Risk</span></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let charts = {};
+        Chart.defaults.color = '#90caf9';
+        Chart.defaults.borderColor = '#2d4a6d';
+        
+        function initCharts() {
+            charts.barChart = new Chart(document.getElementById('barChart'), {
+                type: 'bar',
+                data: { labels: ['2000', '2020'], datasets: [{ data: [3498.31, 3400.85], backgroundColor: ['rgba(41,121,255,0.8)', 'rgba(255,82,82,0.8)'], borderWidth: 2 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: false, grid: { color: '#2d4a6d' } }, x: { grid: { display: false } } } }
+            });
+            
+            charts.pieChart = new Chart(document.getElementById('pieChart'), {
+                type: 'pie',
+                data: { labels: ['Forest', 'Non-Forest'], datasets: [{ data: [3400.85, 97.65], backgroundColor: ['rgba(41,121,255,0.8)', 'rgba(189,189,189,0.6)'] }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+            });
+            
+            charts.changeChart = new Chart(document.getElementById('changeChart'), {
+                type: 'bar',
+                data: { labels: ['Stable', 'Loss', 'Gain'], datasets: [{ data: [3310, 97.46, 10.5], backgroundColor: ['rgba(41,121,255,0.8)', 'rgba(255,82,82,0.8)', 'rgba(105,240,174,0.8)'] }] },
+                options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: '#2d4a6d' } } } }
+            });
+            
+            charts.doughnutChart = new Chart(document.getElementById('doughnutChart'), {
+                type: 'doughnut',
+                data: { labels: ['Stable', 'Loss', 'Gain'], datasets: [{ data: [3310, 97.46, 10.5], backgroundColor: ['rgba(41,121,255,0.8)', 'rgba(255,82,82,0.8)', 'rgba(105,240,174,0.8)'] }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+            });
+            
+            charts.lineChart = new Chart(document.getElementById('lineChart'), {
+                type: 'line',
+                data: { labels: ['2000', '2005', '2010', '2015', '2020'], datasets: [{ data: [3498.31, 3478, 3453, 3426, 3400.85], borderColor: '#ff5252', backgroundColor: 'rgba(255,82,82,0.1)', borderWidth: 3, fill: true, tension: 0.4 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: false, grid: { color: '#2d4a6d' } } } }
+            });
+        }
+        
+        function updateDashboard() {
+            const y1 = parseInt(document.getElementById('year1Input').value);
+            const f1 = parseFloat(document.getElementById('forest1Input').value);
+            const y2 = parseInt(document.getElementById('year2Input').value);
+            const f2 = parseFloat(document.getElementById('forest2Input').value);
+            performUpdate(y1, f1, y2, f2);
+        }
+        
+        function updateFromHeader() {
+            const y1 = parseInt(document.getElementById('headerYear1').value);
+            const y2 = parseInt(document.getElementById('headerYear2').value);
+            // Base data (example model – you can replace with real data)
+            const baseYear = 2000;
+            const baseForest = 3498.31;
+            const annualDeclineRate = 4.87; // sq km lost per year (example)
+            // Estimate forest cover for each year
+            const f1 = baseForest - (y1 - baseYear) * annualDeclineRate;
+            const f2 = baseForest - (y2 - baseYear) * annualDeclineRate;
+            // Update visible inputs for clarity
+            document.getElementById('year1Input').value = y1;
+            document.getElementById('year2Input').value = y2;
+            document.getElementById('forest1Input').value = f1.toFixed(2);
+            document.getElementById('forest2Input').value = f2.toFixed(2);
+            performUpdate(y1, f1, y2, f2);
+        }
+        
+        function performUpdate(y1, f1, y2, f2) {
+            const change = f2 - f1;
+            const pct = ((change / f1) * 100).toFixed(2);
+            const abs = Math.abs(change);
+            const loss = change < 0;
+            const stable = Math.min(f1, f2) * 0.97;
+            const lossAmt = loss ? abs * 0.9 : abs * 0.1;
+            const gainAmt = loss ? abs * 0.1 : abs * 0.9;
+            
+            document.getElementById('totalForest').textContent = f1.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+            document.getElementById('currentForest').textContent = f2.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+            document.getElementById('forestLoss').textContent = lossAmt.toFixed(2);
+            document.getElementById('forestGain').textContent = gainAmt.toFixed(2);
+            document.getElementById('netChangePercent').textContent = (loss ? '' : '+') + pct + '%';
+            document.getElementById('kpiYear1').textContent = 'Year: ' + y1;
+            document.getElementById('kpiYear2').textContent = 'Year: ' + y2;
+            document.getElementById('statLoss').textContent = lossAmt.toFixed(1);
+            document.getElementById('statGain').textContent = gainAmt.toFixed(1);
+            document.getElementById('statStable').textContent = stable.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+            document.getElementById('statChange').textContent = (loss ? '' : '+') + pct + '%';
+            document.getElementById('barTitle').textContent = '📊 Forest Cover Comparison (' + y1 + ' vs ' + y2 + ')';
+            document.getElementById('lineTitle').textContent = '📉 Trend (' + y1 + '-' + y2 + ')';
+            
+            charts.barChart.data.labels = [y1.toString(), y2.toString()];
+            charts.barChart.data.datasets[0].data = [f1, f2];
+            charts.barChart.update();
+            
+            charts.pieChart.data.datasets[0].data = [f2, 3500 - f2];
+            charts.pieChart.update();
+            
+            charts.changeChart.data.datasets[0].data = [stable, lossAmt, gainAmt];
+            charts.changeChart.update();
+            
+            charts.doughnutChart.data.datasets[0].data = [stable, lossAmt, gainAmt];
+            charts.doughnutChart.update();
+            
+            const diff = y2 - y1;
+            const step = diff / 4;
+            const fStep = (f2 - f1) / 4;
+            charts.lineChart.data.labels = [y1, Math.round(y1+step), Math.round(y1+2*step), Math.round(y1+3*step), y2].map(String);
+            charts.lineChart.data.datasets[0].data = [f1, f1+fStep, f1+2*fStep, f1+3*fStep, f2];
+            charts.lineChart.update();
+            
+            document.getElementById('updateNotification').classList.add('show');
+            setTimeout(() => document.getElementById('updateNotification').classList.remove('show'), 2000);
+        }
+        
+        window.onload = initCharts;
+    </script>
+</body>
+</html>
